@@ -10,12 +10,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import java.util.List;
 
 @Configuration
 public class SecurityConfig {
 
-    // Our custom filter from the previous step - Spring will run this 
-    // on every request, before checking any of the rules below
     @Autowired
     private JwtAuthFilter jwtAuthFilter;
 
@@ -24,37 +26,46 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    // This tells Spring: "requests coming from our Angular dev server
+    // are allowed to talk to us" - without this, browsers silently
+    // block the request before it even reaches our code
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of("http://localhost:4200"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
-
-            // Tells Spring: "don't create browser-style login sessions - 
-            // every request proves itself fresh with its own token, 
-            // nothing is remembered between requests on the server side"
-            .sessionManagement(session -> 
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
             .authorizeHttpRequests(auth -> auth
-                // Login itself must be reachable by anyone, logged in or not
                 .requestMatchers("/api/auth/login").permitAll()
+                .requestMatchers("/api/auth/login").permitAll()
+                // Browsers send an OPTIONS "preflight" request before many 
+                // real requests, just to check CORS permissions - this must 
+                // be allowed through freely, or the browser blocks the 
+                // REAL request before it's even sent
+                .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()	
 
-                // Only ADMIN can create new users (no self-registration) 
-                // or manage suppliers/departments
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/users").hasRole("ADMIN")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/suppliers").hasRole("ADMIN")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/departments").hasRole("ADMIN")
-
-                // ADMIN or STOREKEEPER can create products and record stock movements
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/products").hasAnyRole("ADMIN", "STOREKEEPER")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/stock-movements").hasAnyRole("ADMIN", "STOREKEEPER")
-
-                // Everything else requires SOME valid login, any role
                 .anyRequest().authenticated()
             )
 
-            // Plug our custom filter in, telling it to run BEFORE 
-            // Spring's own built-in login filter
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

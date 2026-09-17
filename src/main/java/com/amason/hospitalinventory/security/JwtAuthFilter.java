@@ -60,10 +60,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(authToken);
 
         } catch (Exception e) {
-            // If the token is invalid/expired/tampered with, we simply 
-            // don't mark anyone as logged in - we let the request 
-            // continue, and SecurityConfig will correctly block it 
-            // if that endpoint requires authentication
+            // TEMPORARY: print the real reason token validation is failing, 
+            // so we can diagnose - we'll remove this print once fixed
+            System.out.println("JWT validation failed: " + e.getMessage());
         }
 
         filterChain.doFilter(request, response);

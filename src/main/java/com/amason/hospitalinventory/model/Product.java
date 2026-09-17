@@ -33,6 +33,12 @@ public class Product {
     @Column(nullable = false)
     private BigDecimal unitPrice;
 
+    // Defaults to "KES" (Kenyan Shillings) for every new product, since 
+    // this system is built for a Kenyan hospital context - stored 
+    // explicitly rather than assumed, so pricing is never ambiguous
+    @Column(nullable = false)
+    private String currency = "KES";
+
     // When stock falls to or below this number, the system should flag 
     // it as "needs reordering" (we'll build that alert logic later)
     @Column(nullable = false)
@@ -74,6 +80,9 @@ public class Product {
 
     public BigDecimal getUnitPrice() { return unitPrice; }
     public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
+
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
 
     public Integer getReorderLevel() { return reorderLevel; }
     public void setReorderLevel(Integer reorderLevel) { this.reorderLevel = reorderLevel; }
