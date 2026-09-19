@@ -57,7 +57,7 @@ public class SecurityConfig {
                 // be allowed through freely, or the browser blocks the 
                 // REAL request before it's even sent
                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()	
-
+                
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/users").hasRole("ADMIN")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/suppliers").hasRole("ADMIN")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/departments").hasRole("ADMIN")
