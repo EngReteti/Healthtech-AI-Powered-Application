@@ -1,45 +1,31 @@
 package com.amason.hospitalinventory.service;
 
-
 import com.amason.hospitalinventory.model.MovementStatus;
 import com.amason.hospitalinventory.model.MovementType;
 import com.amason.hospitalinventory.model.StockMovement;
 import com.amason.hospitalinventory.repository.StockMovementRepository;
+import com.amason.hospitalinventory.model.Product;
+import com.amason.hospitalinventory.repository.ProductRepository;
+import com.amason.hospitalinventory.model.User;
+import com.amason.hospitalinventory.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.List;
-// Added these two imports near the top, with the others
-import com.amason.hospitalinventory.model.Product;
-import com.amason.hospitalinventory.repository.ProductRepository;
 
-import com.amason.hospitalinventory.model.User;
-import com.amason.hospitalinventory.repository.UserRepository;
-
-// @Service tells Spring: "this class holds business logic, manage it for me"
-// This is different from @Entity (a table) and @Repository-style interfaces 
-// (data access) - this is where actual DECISIONS get made
 @Service
 public class StockService {
 
-    // @Autowired tells Spring: "automatically give me a working 
-    // StockMovementRepository - I don't need to build it myself"
     @Autowired
     private StockMovementRepository stockMovementRepository;
+
     @Autowired
     private ProductRepository productRepository;
+
     @Autowired
     private UserRepository userRepository;
-    /**
-     * Records a new stock movement - this is the single entry point 
-     * every stock change should go through, so our safety rules are 
-     * always enforced in one place, never bypassed.
-     */
+
     public StockMovement recordMovement(StockMovement movement) {
 
-        // Step 1: re-fetch the FULL product and user from the database,
-        // instead of trusting the incomplete {id: X} objects Jackson 
-        // built from the incoming request - this ensures every field 
-        // is real and complete, not null, in what we save and return
         Product product = productRepository.findById(movement.getProduct().getId())
             .orElseThrow(() -> new RuntimeException("Product not found"));
         movement.setProduct(product);
@@ -50,16 +36,10 @@ public class StockService {
 
         boolean isControlled = product.getIsControlledSubstance();
 
-        // Step 2: decide the correct starting status using the rule 
-        // we just wrote above
         MovementStatus status = determineInitialStatus(movement.getType(), isControlled);
         movement.setStatus(status);
 
-        // Step 3: SAFETY CHECK - if this movement would immediately reduce 
-        // stock (and isn't waiting for approval), make sure it won't push 
-        // stock below zero. This is what actually prevents "selling" more 
-        // than physically exists
-        boolean isReduction = 
+        boolean isReduction =
             movement.getType() == MovementType.DISPENSED ||
             movement.getType() == MovementType.TRANSFER ||
             movement.getType() == MovementType.DAMAGE ||
@@ -69,65 +49,40 @@ public class StockService {
             int currentStock = calculateCurrentStock(product.getId());
 
             if (currentStock < movement.getQuantity()) {
-                // We stop here and refuse to save - throwing an exception 
-                // is how Java signals "this operation cannot continue"
                 throw new IllegalStateException(
-                    "Cannot record movement: only " + currentStock + 
+                    "Cannot record movement: only " + currentStock +
                     " units available, but " + movement.getQuantity() + " requested."
                 );
             }
         }
 
-        // Step 4: everything checked out
         return stockMovementRepository.save(movement);
-    }/**
-     
-* Calculates the current stock level for one product 
-     *
-     * current_stock = 
-     *     SUM(IN, DIRECT) 
-     *   - SUM(DISPENSED/TRANSFER/DAMAGE/EXPIRED, DIRECT) 
-     *   ± SUM(ADJUSTMENT, APPROVED)
-     */
-    public int calculateCurrentStock(Long productId) {
-        // Fetch every single movement ever recorded for this product
-        List<StockMovement> movements = stockMovementRepository.findByProductId(productId);
+    }
 
+    public int calculateCurrentStock(Long productId) {
+        List<StockMovement> movements = stockMovementRepository.findByProductId(productId);
         int stock = 0;
 
-        // Go through each movement one at a time and adjust the running total
         for (StockMovement movement : movements) {
-
-            // Only DIRECT and APPROVED movements count toward real stock.
-            // PENDING and REJECTED movements are ignored completely - 
-            // this is what makes the approval workflow actually matter
-            boolean countsTowardStock = 
+            boolean countsTowardStock =
                 movement.getStatus() == MovementStatus.DIRECT ||
                 movement.getStatus() == MovementStatus.APPROVED;
 
             if (!countsTowardStock) {
-                continue; // skip this movement, check the next one
+                continue;
             }
 
-            // Decide whether this movement type ADDS or SUBTRACTS stock
             switch (movement.getType()) {
                 case IN:
                     stock += movement.getQuantity();
                     break;
-
                 case DISPENSED:
                 case TRANSFER:
                 case DAMAGE:
                 case EXPIRED:
                     stock -= movement.getQuantity();
                     break;
-
                 case ADJUSTMENT:
-                    // An adjustment can go either direction - for now we 
-                    // treat its quantity as the exact correction amount.
-                    // We'll refine this once we build the reconciliation 
-                    // feature (Phase 11), where adjustments get a clear 
-                    // "increase" or "decrease" direction
                     stock += movement.getQuantity();
                     break;
             }
@@ -135,17 +90,9 @@ public class StockService {
 
         return stock;
     }
-/**
-     * Decides what STATUS a new movement should start with, before it's saved.
-     * This is the actual enforcement of our two rules:
-     *   1. ADJUSTMENT always needs approval first
-     *   2. ANY movement on a controlled substance needs approval first,
-     *      even a normal IN or DISPENSED
-     * Everything else is safe to apply immediately (DIRECT).
-     */
+
     public MovementStatus determineInitialStatus(MovementType type, boolean isControlledSubstance) {
-        
-        boolean requiresApproval = 
+        boolean requiresApproval =
             type == MovementType.ADJUSTMENT || isControlledSubstance;
 
         if (requiresApproval) {
@@ -153,5 +100,45 @@ public class StockService {
         }
 
         return MovementStatus.DIRECT;
+    }
+
+    // NEW: Approves a pending movement - only meant to be called after 
+    // confirming the caller is an AUDITOR (that check happens in the 
+    // controller/security layer, not here)
+    public StockMovement approveMovement(Long movementId, Long approverId) {
+        StockMovement movement = stockMovementRepository.findById(movementId)
+            .orElseThrow(() -> new RuntimeException("Movement not found"));
+
+        if (movement.getStatus() != MovementStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING movements can be approved.");
+        }
+
+        User approver = userRepository.findById(approverId)
+            .orElseThrow(() -> new RuntimeException("Approver not found"));
+
+        movement.setStatus(MovementStatus.APPROVED);
+        movement.setApprovedBy(approver);
+
+        return stockMovementRepository.save(movement);
+    }
+
+    // NEW: Rejects a pending movement - it will never count toward 
+    // stock, but stays in the ledger permanently as a record that 
+    // someone tried and was correctly refused
+    public StockMovement rejectMovement(Long movementId, Long approverId) {
+        StockMovement movement = stockMovementRepository.findById(movementId)
+            .orElseThrow(() -> new RuntimeException("Movement not found"));
+
+        if (movement.getStatus() != MovementStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING movements can be rejected.");
+        }
+
+        User approver = userRepository.findById(approverId)
+            .orElseThrow(() -> new RuntimeException("Approver not found"));
+
+        movement.setStatus(MovementStatus.REJECTED);
+        movement.setApprovedBy(approver);
+
+        return stockMovementRepository.save(movement);
     }
 }
