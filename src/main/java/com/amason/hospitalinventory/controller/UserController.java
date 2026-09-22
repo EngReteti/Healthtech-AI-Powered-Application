@@ -23,10 +23,6 @@ public class UserController {
         return userRepository.findAll();
     }
 
-    // GET /api/users/me - tells the caller who THEY are, based on the 
-    // email stored inside their own JWT token (set by JwtAuthFilter 
-    // earlier in the request). This is how the frontend discovers its 
-    // own numeric user ID, needed to fill in "performedBy" on a movement
     @GetMapping("/me")
     public User getCurrentUser(Authentication authentication) {
         String email = authentication.getName();
@@ -38,6 +34,27 @@ public class UserController {
     public User createUser(@RequestBody User user) {
         String hashedPassword = passwordEncoder.encode(user.getPasswordHash());
         user.setPasswordHash(hashedPassword);
+        return userRepository.save(user);
+    }
+
+    // POST /api/users/{id}/deactivate - flips active to false. The 
+    // row itself, and every movement it's linked to, stays exactly 
+    // as it was - only future logins are blocked (enforced in 
+    // AuthController, next step)
+    @PostMapping("/{id}/deactivate")
+    public User deactivateUser(@PathVariable Long id) {
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setActive(false);
+        return userRepository.save(user);
+    }
+
+    // The reverse - lets an Admin reinstate someone if needed
+    @PostMapping("/{id}/reactivate")
+    public User reactivateUser(@PathVariable Long id) {
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setActive(true);
         return userRepository.save(user);
     }
 }

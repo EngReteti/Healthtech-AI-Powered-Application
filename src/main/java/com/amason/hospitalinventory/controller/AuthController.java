@@ -26,26 +26,24 @@ public class AuthController {
     @PostMapping("/login")
     public Map<String, String> login(@RequestBody LoginRequest request) {
 
-        // Step 1: look up the user by email. If no such email exists, 
-        // we throw the SAME generic error we'll use for a wrong 
-        // password too 
         User user = userRepository.findByEmail(request.getEmail())
             .orElseThrow(() -> new RuntimeException("Invalid email or password"));
 
-        // Step 2: check the password. passwordEncoder.matches() hashes 
-        // whatever was typed and compares it to the stored hash - we 
-        // NEVER decode the stored hash back into readable text, because 
-        // that's not actually possible with BCrypt, by design
         boolean passwordCorrect = passwordEncoder.matches(request.getPassword(), user.getPasswordHash());
 
         if (!passwordCorrect) {
             throw new RuntimeException("Invalid email or password");
         }
 
-        // Step 3: credentials are correct - generate a real token
+        // NEW: a correct password on a deactivated account still 
+        // isn't allowed through - this is the actual enforcement 
+        // that makes deactivation meaningful, not just a label
+        if (!user.getActive()) {
+            throw new RuntimeException("This account has been deactivated. Contact an administrator.");
+        }
+
         String token = jwtUtil.generateToken(user.getEmail(), user.getRole().toString());
 
-        // Step 4: return it in a small, clean response
         Map<String, String> response = new HashMap<>();
         response.put("token", token);
         response.put("role", user.getRole().toString());
