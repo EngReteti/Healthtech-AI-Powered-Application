@@ -63,6 +63,7 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/suppliers").hasRole("ADMIN")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/departments").hasRole("ADMIN")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/products").hasAnyRole("ADMIN", "STOREKEEPER")
+               .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/stock-batches").hasAnyRole("ADMIN", "STOREKEEPER")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/stock-movements").hasAnyRole("ADMIN", "STOREKEEPER")
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/stock-movements/*/approve", "/api/stock-movements/*/reject").hasRole("AUDITOR")
                 .anyRequest().authenticated()
