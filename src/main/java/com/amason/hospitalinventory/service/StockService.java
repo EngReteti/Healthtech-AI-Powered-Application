@@ -8,6 +8,8 @@ import com.amason.hospitalinventory.model.Product;
 import com.amason.hospitalinventory.repository.ProductRepository;
 import com.amason.hospitalinventory.model.User;
 import com.amason.hospitalinventory.repository.UserRepository;
+import com.amason.hospitalinventory.model.StockBatch;
+import com.amason.hospitalinventory.repository.StockBatchRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -24,6 +26,9 @@ public class StockService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private StockBatchRepository stockBatchRepository;
+
     public StockMovement recordMovement(StockMovement movement) {
 
         Product product = productRepository.findById(movement.getProduct().getId())
@@ -33,6 +38,16 @@ public class StockService {
         User performedBy = userRepository.findById(movement.getPerformedBy().getId())
             .orElseThrow(() -> new RuntimeException("User not found"));
         movement.setPerformedBy(performedBy);
+
+        // NEW: batch is OPTIONAL - only re-fetch it when one was 
+        // actually provided in the request, same reasoning as the 
+        // product/user fix, just guarded with a null check since 
+        // most movement types never reference a batch at all
+        if (movement.getBatch() != null && movement.getBatch().getId() != null) {
+            StockBatch batch = stockBatchRepository.findById(movement.getBatch().getId())
+                .orElseThrow(() -> new RuntimeException("Batch not found"));
+            movement.setBatch(batch);
+        }
 
         boolean isControlled = product.getIsControlledSubstance();
 
@@ -102,9 +117,6 @@ public class StockService {
         return MovementStatus.DIRECT;
     }
 
-    // NEW: Approves a pending movement - only meant to be called after 
-    // confirming the caller is an AUDITOR (that check happens in the 
-    // controller/security layer, not here)
     public StockMovement approveMovement(Long movementId, Long approverId) {
         StockMovement movement = stockMovementRepository.findById(movementId)
             .orElseThrow(() -> new RuntimeException("Movement not found"));
@@ -122,9 +134,6 @@ public class StockService {
         return stockMovementRepository.save(movement);
     }
 
-    // NEW: Rejects a pending movement - it will never count toward 
-    // stock, but stays in the ledger permanently as a record that 
-    // someone tried and was correctly refused
     public StockMovement rejectMovement(Long movementId, Long approverId) {
         StockMovement movement = stockMovementRepository.findById(movementId)
             .orElseThrow(() -> new RuntimeException("Movement not found"));
