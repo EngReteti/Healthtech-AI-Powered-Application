@@ -10,6 +10,7 @@ import com.amason.hospitalinventory.model.User;
 import com.amason.hospitalinventory.repository.UserRepository;
 import com.amason.hospitalinventory.model.StockBatch;
 import com.amason.hospitalinventory.repository.StockBatchRepository;
+import com.amason.hospitalinventory.dto.ReconciliationResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -39,10 +40,6 @@ public class StockService {
             .orElseThrow(() -> new RuntimeException("User not found"));
         movement.setPerformedBy(performedBy);
 
-        // NEW: batch is OPTIONAL - only re-fetch it when one was 
-        // actually provided in the request, same reasoning as the 
-        // product/user fix, just guarded with a null check since 
-        // most movement types never reference a batch at all
         if (movement.getBatch() != null && movement.getBatch().getId() != null) {
             StockBatch batch = stockBatchRepository.findById(movement.getBatch().getId())
                 .orElseThrow(() -> new RuntimeException("Batch not found"));
@@ -149,5 +146,54 @@ public class StockService {
         movement.setApprovedBy(approver);
 
         return stockMovementRepository.save(movement);
+    }
+
+    /**
+     * Compares a real physical count against the system's calculated 
+     * stock. If they match, nothing happens - the system was already 
+     * correct. If they don't, a PENDING ADJUSTMENT is automatically 
+     * created, ready for an Auditor to review on the Approvals page - 
+     * this is the actual closing of the loop between "what we think 
+     * we have" and "what's really on the shelf."
+     */
+    public ReconciliationResult reconcile(Long productId, int countedQuantity, Long performedById) {
+        int calculatedStock = calculateCurrentStock(productId);
+        int variance = countedQuantity - calculatedStock;
+
+        ReconciliationResult result = new ReconciliationResult();
+        result.setCalculatedStock(calculatedStock);
+        result.setCountedQuantity(countedQuantity);
+        result.setVariance(variance);
+
+        if (variance == 0) {
+            result.setDiscrepancyFound(false);
+            return result;
+        }
+
+        result.setDiscrepancyFound(true);
+
+        Product product = productRepository.findById(productId)
+            .orElseThrow(() -> new RuntimeException("Product not found"));
+        User performedBy = userRepository.findById(performedById)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        StockMovement adjustment = new StockMovement();
+        adjustment.setProduct(product);
+        adjustment.setType(MovementType.ADJUSTMENT);
+        // We store the ABSOLUTE variance amount as quantity, and the 
+        // reason states the direction clearly - keeps quantity always 
+        // positive, matching every other movement in the system
+        adjustment.setQuantity(Math.abs(variance));
+        adjustment.setReason(String.format(
+            "Physical count found %d units, system expected %d (variance: %+d)",
+            countedQuantity, calculatedStock, variance
+        ));
+        adjustment.setPerformedBy(performedBy);
+        adjustment.setStatus(MovementStatus.PENDING);
+
+        StockMovement saved = stockMovementRepository.save(adjustment);
+        result.setPendingAdjustment(saved);
+
+        return result;
     }
 }
