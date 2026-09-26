@@ -1,0 +1,38 @@
+# This file describes the SHAPE of data that can be queried through 
+# GraphQL - think of it as a contract, similar to how our @Entity 
+# classes describe the shape of database tables
+
+type Supplier {
+    id: ID!
+    name: String!
+    phone: String
+    email: String
+    address: String
+}
+
+type Product {
+    id: ID!
+    name: String!
+    sku: String!
+    category: String!
+    unitPrice: Float!
+    currency: String!
+    reorderLevel: Int!
+    isControlledSubstance: Boolean!
+    supplier: Supplier!
+    # This field doesn't exist as a real column anywhere - it's 
+    # CALCULATED on demand, exactly like calculateCurrentStock() 
+    # already does for our REST API. GraphQL lets us expose that 
+    # calculation as if it were a normal field on Product
+    currentStock: Int!
+}
+
+# "Query" is GraphQL's required root type - every possible read 
+# operation is listed here, similar to how @GetMapping methods are 
+# listed across our REST controllers
+type Query {
+    # Returns every product, WITH its calculated stock already 
+    # attached - this is the single request that replaces the 
+    # "1 call for products + 1 call per product for stock" pattern
+    products: [Product!]!
+}
