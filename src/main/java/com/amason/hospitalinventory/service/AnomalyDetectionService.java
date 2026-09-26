@@ -19,13 +19,18 @@ public class AnomalyDetectionService {
         MovementType.DISPENSED, MovementType.TRANSFER, MovementType.DAMAGE, MovementType.EXPIRED
     );
 
-    /**
+    // Caches the ENTIRE anomaly scan result under one fixed key, since 
+    // there are no parameters to vary it by - "value" is unrelated to 
+    // "currentStock", so evicting one cache never touches the other
+    @org.springframework.cache.annotation.Cacheable(value = "anomalies")
+    public List<AnomalyResult> detectAnomalies() {
+
+     /**
      * Scans every movement and returns the ones that look statistically 
      * unusual, each with a plain-English reason attached. This is 
      * explainable, rule-based detection - not a black-box model - so 
      * every flag can be understood and questioned by a real person.
      */
-    public List<AnomalyResult> detectAnomalies() {
         List<StockMovement> allMovements = stockMovementRepository.findAll();
         List<AnomalyResult> results = new ArrayList<>();
 

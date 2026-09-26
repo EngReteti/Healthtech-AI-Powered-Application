@@ -12,6 +12,9 @@ import com.amason.hospitalinventory.model.StockBatch;
 import com.amason.hospitalinventory.repository.StockBatchRepository;
 import com.amason.hospitalinventory.dto.ReconciliationResult;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import java.util.List;
 
@@ -30,6 +33,13 @@ public class StockService {
     @Autowired
     private StockBatchRepository stockBatchRepository;
 
+    // Both caches get cleared together, since a new movement can 
+    // change both the calculated stock AND whether something now 
+    // looks statistically unusual
+    @Caching(evict = {
+        @CacheEvict(value = "currentStock", allEntries = true),
+        @CacheEvict(value = "anomalies", allEntries = true)
+    })
     public StockMovement recordMovement(StockMovement movement) {
 
         Product product = productRepository.findById(movement.getProduct().getId())
@@ -71,6 +81,7 @@ public class StockService {
         return stockMovementRepository.save(movement);
     }
 
+    @Cacheable(value = "currentStock", key = "#productId")
     public int calculateCurrentStock(Long productId) {
         List<StockMovement> movements = stockMovementRepository.findByProductId(productId);
         int stock = 0;
@@ -114,6 +125,10 @@ public class StockService {
         return MovementStatus.DIRECT;
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "currentStock", allEntries = true),
+        @CacheEvict(value = "anomalies", allEntries = true)
+    })
     public StockMovement approveMovement(Long movementId, Long approverId) {
         StockMovement movement = stockMovementRepository.findById(movementId)
             .orElseThrow(() -> new RuntimeException("Movement not found"));
@@ -131,6 +146,10 @@ public class StockService {
         return stockMovementRepository.save(movement);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "currentStock", allEntries = true),
+        @CacheEvict(value = "anomalies", allEntries = true)
+    })
     public StockMovement rejectMovement(Long movementId, Long approverId) {
         StockMovement movement = stockMovementRepository.findById(movementId)
             .orElseThrow(() -> new RuntimeException("Movement not found"));
@@ -148,14 +167,10 @@ public class StockService {
         return stockMovementRepository.save(movement);
     }
 
-    /**
-     * Compares a real physical count against the system's calculated 
-     * stock. If they match, nothing happens - the system was already 
-     * correct. If they don't, a PENDING ADJUSTMENT is automatically 
-     * created, ready for an Auditor to review on the Approvals page - 
-     * this is the actual closing of the loop between "what we think 
-     * we have" and "what's really on the shelf."
-     */
+    @Caching(evict = {
+        @CacheEvict(value = "currentStock", allEntries = true),
+        @CacheEvict(value = "anomalies", allEntries = true)
+    })
     public ReconciliationResult reconcile(Long productId, int countedQuantity, Long performedById) {
         int calculatedStock = calculateCurrentStock(productId);
         int variance = countedQuantity - calculatedStock;
@@ -180,9 +195,6 @@ public class StockService {
         StockMovement adjustment = new StockMovement();
         adjustment.setProduct(product);
         adjustment.setType(MovementType.ADJUSTMENT);
-        // We store the ABSOLUTE variance amount as quantity, and the 
-        // reason states the direction clearly - keeps quantity always 
-        // positive, matching every other movement in the system
         adjustment.setQuantity(Math.abs(variance));
         adjustment.setReason(String.format(
             "Physical count found %d units, system expected %d (variance: %+d)",
