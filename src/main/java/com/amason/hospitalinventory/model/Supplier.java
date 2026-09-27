@@ -6,7 +6,7 @@ import jakarta.persistence.*;
 // and @Table names it "suppliers" to match our schema design
 @Entity
 @Table(name = "suppliers")
-public class Supplier {
+public class Supplier implements java.io.Serializable {
 
     // Same pattern as before - auto-generated unique ID for each supplier
     @Id

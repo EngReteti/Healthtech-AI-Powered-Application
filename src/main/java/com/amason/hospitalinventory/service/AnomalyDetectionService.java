@@ -22,7 +22,6 @@ public class AnomalyDetectionService {
     // Caches the ENTIRE anomaly scan result under one fixed key, since 
     // there are no parameters to vary it by - "value" is unrelated to 
     // "currentStock", so evicting one cache never touches the other
-    @org.springframework.cache.annotation.Cacheable(value = "anomalies")
     public List<AnomalyResult> detectAnomalies() {
 
      /**
